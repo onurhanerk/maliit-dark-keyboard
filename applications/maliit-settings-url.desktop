@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Keyboard Appearance
+Name[tr]=Klavye Görünümü
+Exec=@HOME@/.local/bin/maliit-settings-url %u
+Type=Application
+MimeType=x-scheme-handler/systemsettings;x-scheme-handler/settings;
+Icon=input-keyboard-virtual
+NoDisplay=true

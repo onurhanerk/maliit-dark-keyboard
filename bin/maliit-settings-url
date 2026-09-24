@@ -1,0 +1,8 @@
+#!/bin/sh
+# Maliit'in "Ayarlar" menüsü masaüstünde settings://system/language, telefonda systemsettings://kcm_mobile_onscreenkeyboard açar.
+# Bu adresleri klavye görünüm ayarlarına, diğerlerini KDE'nin normal açıcısına yönlendirir.
+echo "$(date +%T) $*" >> "$HOME/.cache/maliit-settings-url.log"
+case "$1" in
+  *kcm_mobile_onscreenkeyboard*|settings://system/language) exec "$HOME/.local/bin/maliit-siyah-ayarlar" ;;
+  *) exec plasma-open-settings "$@" ;;
+esac

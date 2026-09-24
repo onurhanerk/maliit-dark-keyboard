@@ -1,0 +1,28 @@
+#!/bin/sh
+# Maliit'i siyah, çerçeveli tuş stiliyle başlatır. Ayarlar: ~/.config/maliit-siyah/stil.conf
+CONF="$HOME/.config/maliit-siyah/stil.conf"
+get() { v=$(sed -n "s/^$1=//p" "$CONF" 2>/dev/null); echo "${v:-$2}"; }
+
+# Satır aralığı, tuş aralığı ve klavye yüksekliği Maliit'in cihaz dosyasından okunur
+mkdir -p "$HOME/.local/share/maliit/keyboard2/devices"
+python3 - "$(get satirAraligi 1)" "$(get tusAraligi 0.5)" "$(get tusYuksekligi 34)" <<'PY'
+import json, os, sys
+row, gap, height = float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]) / 100
+d = json.load(open("/usr/share/maliit/keyboard2/devices/tablet.json"))
+d.update(keyMargins=gap, rowMarginLandscape=row, rowMarginPortrait=row,
+         keyboardHeightLandscape=height, keyboardHeightPortrait=round(height * 0.91, 3))
+json.dump(d, open(os.path.expanduser("~/.local/share/maliit/keyboard2/devices/tablet.json"), "w"), indent=2)
+PY
+
+if [ "$(get sayiSatiri false)" = "true" ]; then
+    "$HOME/.local/bin/maliit-rakam-satiri"
+    export MALIIT_KEYBOARD_LANGUAGES_PATH="$HOME/.local/share/maliit-siyah/languages"
+fi
+
+export QT_QUICK_CONTROLS_STYLE_PATH="$HOME/.local/share/maliit-siyah/style"
+export QT_QUICK_CONTROLS_STYLE=MaliitSiyah
+export QT_QUICK_CONTROLS_FALLBACK_STYLE=Material
+export QT_QUICK_CONTROLS_MATERIAL_THEME=Dark
+export QT_QUICK_CONTROLS_MATERIAL_ACCENT=Blue
+export QT_QUICK_CONTROLS_MATERIAL_BACKGROUND="$(get arkaPlan '#000000')"
+exec /usr/bin/maliit-keyboard "$@"

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Keyboard Appearance
+Name[tr]=Klavye Görünümü
+Comment=On-screen keyboard colors, layout and languages
+Comment[tr]=Sanal klavye renkleri, düzeni ve dilleri
+Exec=@HOME@/.local/bin/maliit-siyah-ayarlar
+Type=Application
+Icon=input-keyboard-virtual
+Categories=Settings;

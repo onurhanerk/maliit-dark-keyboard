@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+# Ekran tablet modundan dizüstü moduna geri döndüğünde sanal klavyeyi kapatır.
+# Tablet modunda klavye kapanınca imleci ekranın ortasına taşır: dokunmatikte imleç son dokunulan
+# yerde (Enter tuşu gibi) kalır, bu da dock'un üstüne denk gelir ve Latte kendini gizlemez.
+import os, subprocess, sys
+from PyQt5.QtCore import QObject, QTimer, pyqtSlot
+from PyQt5.QtDBus import QDBusConnection, QDBusInterface, QDBusVariant
+from PyQt5.QtGui import QGuiApplication
+
+MOVE_POINTER = os.path.expanduser("~/.local/bin/imlec-tasi")
+
+
+class Watcher(QObject):
+    def __init__(self):
+        super().__init__()
+        bus = QDBusConnection.sessionBus()
+        self.props = QDBusInterface("org.kde.KWin", "/VirtualKeyboard", "org.freedesktop.DBus.Properties", bus)
+        self.tablet = QDBusInterface("org.kde.KWin", "/org/kde/KWin", "org.kde.KWin.TabletModeManager", bus)
+
+    @pyqtSlot(bool)
+    def tabletModeChanged(self, tablet):
+        if not tablet:
+            self.props.call("Set", "org.kde.kwin.VirtualKeyboard", "active", QDBusVariant(False))
+
+    @pyqtSlot()
+    def visibleChanged(self):
+        visible = self.props.call("Get", "org.kde.kwin.VirtualKeyboard", "visible").arguments()[0]
+        if not visible and self.tablet.property("tabletMode"):
+            # Klavye yüzeyi kalkıp pencere eski boyuna dönsün diye kısa bir bekleme
+            QTimer.singleShot(200, self.movePointer)
+
+    def movePointer(self):
+        geo = QGuiApplication.primaryScreen().geometry()
+        subprocess.run([MOVE_POINTER, str(geo.x() + geo.width() // 2), str(geo.y() + geo.height() * 2 // 5)],
+                       capture_output=True, timeout=5)
+
+
+app = QGuiApplication(sys.argv)
+w = Watcher()
+bus = QDBusConnection.sessionBus()
+bus.connect("org.kde.KWin", "/org/kde/KWin", "org.kde.KWin.TabletModeManager", "tabletModeChanged", w.tabletModeChanged)
+bus.connect("org.kde.KWin", "/VirtualKeyboard", "org.kde.kwin.VirtualKeyboard", "visibleChanged", w.visibleChanged)
+sys.exit(app.exec_())

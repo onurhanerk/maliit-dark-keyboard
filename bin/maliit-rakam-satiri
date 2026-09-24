@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+# Maliit dil dosyalarının rakam satırlı kopyasını ~/.local/share/maliit-siyah/languages içine kurar.
+# Değişmeyen dosyalar sisteme bağlantı olarak kalır, yalnızca ana düzen dosyası (Keyboard_<dil>.qml) kopyalanır.
+import os, re, shutil
+
+SRC = "/usr/lib/x86_64-linux-gnu/maliit/keyboard2/languages"
+DST = os.path.expanduser("~/.local/share/maliit-siyah/languages")
+
+KEYS = {
+    "tr": [("1", "!"), ("2", "'"), ("3", "^"), ("4", "+"), ("5", "%"), ("6", "&"),
+           ("7", "/"), ("8", "("), ("9", ")"), ("0", "="), ("*", "?"), ("-", "_")],
+}
+DEFAULT = [("1", "!"), ("2", "@"), ("3", "#"), ("4", "$"), ("5", "%"), ("6", "^"),
+           ("7", "&"), ("8", "*"), ("9", "("), ("0", ")"), ("-", "_"), ("=", "+")]
+ROW = re.compile(r"^        Row \{", re.M)
+
+
+def number_row(lang, text):
+    # Maliit tuş genişliğini en uzun satıra göre hesaplar; rakam satırı ilk satırdan uzun olmasın
+    rows = ROW.split(text)[1:]
+    first = len(re.findall(r"^\s+\w*Key \{", rows[0], re.M)) if rows else 10
+    keys = KEYS.get(lang, DEFAULT)[:max(10, min(12, first))]
+    lines = []
+    for i, (label, shifted) in enumerate(keys):
+        side = "; leftSide: true" if i == 0 else "; rightSide: true" if i == len(keys) - 1 else ""
+        shifted = shifted.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'            CharKey {{ label: "{label}"; shifted: "{shifted}"{side} }}')
+    return ("        Row {\n            anchors.horizontalCenter: parent.horizontalCenter;\n"
+            "            spacing: 0\n\n" + "\n".join(lines) + "\n        }\n\n")
+
+
+shutil.rmtree(DST, ignore_errors=True)
+os.makedirs(DST)
+for lang in sorted(os.listdir(SRC)):
+    src, dst = os.path.join(SRC, lang), os.path.join(DST, lang)
+    main = os.path.join(src, f"Keyboard_{lang}.qml")
+    text = open(main).read() if os.path.isfile(main) else ""
+    m = ROW.search(text)
+    if not m:
+        os.symlink(src, dst)
+        continue
+    os.makedirs(dst)
+    for f in os.listdir(src):
+        if f != os.path.basename(main):
+            os.symlink(os.path.join(src, f), os.path.join(dst, f))
+    with open(os.path.join(dst, os.path.basename(main)), "w") as out:
+        out.write(text[:m.start()] + number_row(lang, text) + text[m.start():])

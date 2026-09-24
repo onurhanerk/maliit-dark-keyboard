@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+# Maliit klavye görünüm ve dil ayarları. Kaydedince klavye yeniden başlatılır.
+import ast, os, subprocess, sys
+from PyQt5.QtCore import QSettings, Qt, QRectF, QTimer, QLocale
+from PyQt5.QtGui import QColor, QPainter, QPen, QFont
+from PyQt5.QtWidgets import (QApplication, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QColorDialog, QLabel,
+                             QComboBox, QListWidget, QListWidgetItem, QScrollArea)
+
+CONF = os.path.expanduser("~/.config/maliit-siyah/stil.conf")
+LANGUAGES = "/usr/lib/x86_64-linux-gnu/maliit/keyboard2/languages"
+GSCHEMA = "org.maliit.keyboard.maliit"
+DEFAULTS = {
+    "arkaPlan": "#000000", "tusRengi": "#121212", "basiliRenk": "#3a3a3a",
+    "cerceveRengi": "#5a5a5a", "cerceveKalinligi": 1, "koseYaricapi": 6, "yaziRengi": "#ffffff",
+    "satirAraligi": 1.0, "tusAraligi": 0.5, "tusYuksekligi": 34, "sayiSatiri": False,
+}
+COLORS = ["arkaPlan", "tusRengi", "basiliRenk", "cerceveRengi", "yaziRengi"]
+
+# Pencere metinleri: anahtar -> (Türkçe, English)
+TEXT = {
+    "title": ("Klavye Ayarları", "Keyboard Settings"),
+    "language": ("Dil", "Language"),
+    "uiLanguage": ("Pencere dili", "Window language"),
+    "typingLanguages": ("Yazma dilleri", "Typing languages"),
+    "activeLanguage": ("Varsayılan yazma dili", "Default typing language"),
+    "appearance": ("Görünüm", "Appearance"),
+    "arkaPlan": ("Klavye arka planı", "Keyboard background"),
+    "tusRengi": ("Tuş rengi", "Key color"),
+    "basiliRenk": ("Basılı tuş rengi", "Pressed key color"),
+    "cerceveRengi": ("Çerçeve rengi", "Border color"),
+    "yaziRengi": ("Yazı rengi", "Text color"),
+    "cerceveKalinligi": ("Çerçeve kalınlığı", "Border width"),
+    "koseYaricapi": ("Köşe yuvarlaklığı", "Corner radius"),
+    "layout": ("Düzen", "Layout"),
+    "satirAraligi": ("Satır aralığı", "Row spacing"),
+    "tusAraligi": ("Tuş aralığı (sıklık)", "Key spacing"),
+    "tusYuksekligi": ("Klavye yüksekliği", "Keyboard height"),
+    "screen": (" % ekran", " % of screen"),
+    "sayiSatiri": ("Rakam satırını göster", "Show number row"),
+    "apply": ("Uygula", "Apply"),
+    "reset": ("Varsayılana dön", "Reset to defaults"),
+}
+LANGUAGE_NAMES = {"en": "English", "en@dv": "English (Dvorak)", "fr-ch": "Français (Suisse)",
+                  "zh-hans": "简体中文", "zh-hant": "繁體中文"}
+
+
+def language_name(code):
+    if code in LANGUAGE_NAMES:
+        return LANGUAGE_NAMES[code]
+    name = QLocale(code).nativeLanguageName()
+    return name[:1].upper() + name[1:] if name else code
+
+
+def gsettings_get(key, default):
+    try:
+        out = subprocess.run(["gsettings", "get", GSCHEMA, key], capture_output=True, text=True).stdout
+        return ast.literal_eval(out.strip().removeprefix("@as "))
+    except (ValueError, SyntaxError):
+        return default
+
+
+class Preview(QWidget):
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        self.setMinimumHeight(90)
+
+    def paintEvent(self, e):
+        v = self.win.values
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), QColor(v["arkaPlan"]))
+        p.setFont(QFont("Noto Sans", 16))
+        keys = ["q", "w", "e", "r", "t"]
+        w = min(64, (self.width() - 20) / len(keys))
+        x0 = (self.width() - w * len(keys)) / 2
+        for i, k in enumerate(keys):
+            r = QRectF(x0 + i * w + 3, 12, w - 6, self.height() - 24)
+            bw = int(v["cerceveKalinligi"])
+            p.setPen(QPen(QColor(v["cerceveRengi"]), bw) if bw else Qt.NoPen)
+            p.setBrush(QColor(v["basiliRenk"] if i == 2 else v["tusRengi"]))
+            p.drawRoundedRect(r, v["koseYaricapi"], v["koseYaricapi"])
+            p.setPen(QColor(v["yaziRengi"]))
+            p.drawText(r, Qt.AlignCenter, k)
+
+
+class Window(QWidget):
+    def __init__(self, values=None, enabled=None, active=None):
+        super().__init__()
+        self.settings = QSettings(CONF, QSettings.IniFormat)
+        # Seçilmemişse sistem dili: Türkçe sistemde Türkçe, diğerlerinde İngilizce
+        default = "tr" if QLocale.system().language() == QLocale.Turkish else "en"
+        self.ui = 1 if self.settings.value("arayuzDili", default) == "en" else 0
+        self.values = values or {k: self.settings.value(k, d, type=type(d)) for k, d in DEFAULTS.items()}
+        self.enabled = enabled or gsettings_get("enabled-languages", ["tr"])
+        self.active = active or gsettings_get("active-language", "tr")
+        self.setWindowTitle(self.t("title"))
+
+        form = QFormLayout()
+        form.addRow(QLabel(f"<b>{self.t('language')}</b>"))
+        self.uiLanguage = QComboBox(); self.uiLanguage.addItems(["Türkçe", "English"])
+        self.uiLanguage.setCurrentIndex(self.ui)
+        self.uiLanguage.currentIndexChanged.connect(self.changeUiLanguage)
+        form.addRow(self.t("uiLanguage"), self.uiLanguage)
+
+        # Seçili diller üstte, sonra geri kalanlar ada göre
+        codes = sorted(os.listdir(LANGUAGES), key=lambda c: (c not in self.enabled, language_name(c).lower()))
+        self.languageList = QListWidget(); self.languageList.setMinimumHeight(150)
+        for code in codes:
+            item = QListWidgetItem(language_name(code))
+            item.setData(Qt.UserRole, code)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if code in self.enabled else Qt.Unchecked)
+            self.languageList.addItem(item)
+        self.languageList.itemChanged.connect(self.languagesChanged)
+        self.activeLanguage = QComboBox()
+        self.activeLanguage.currentIndexChanged.connect(self.activeChanged)
+        self.languageList.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        form.addRow(QLabel(self.t("typingLanguages")))
+        form.addRow(self.languageList)
+        form.addRow(self.t("activeLanguage"), self.activeLanguage)
+
+        form.addRow(QLabel(f"<b>{self.t('appearance')}</b>"))
+        self.colorButtons = {}
+        for key in COLORS:
+            b = QPushButton()
+            b.setMinimumHeight(36)
+            b.clicked.connect(lambda _, k=key: self.pickColor(k))
+            self.colorButtons[key] = b
+            form.addRow(self.t(key), b)
+        self.border = QSpinBox(); self.border.setRange(0, 6); self.border.setSuffix(" px")
+        self.radius = QSpinBox(); self.radius.setRange(0, 30); self.radius.setSuffix(" px")
+        self.border.valueChanged.connect(lambda n: self.setValue("cerceveKalinligi", n))
+        self.radius.valueChanged.connect(lambda n: self.setValue("koseYaricapi", n))
+        form.addRow(self.t("cerceveKalinligi"), self.border)
+        form.addRow(self.t("koseYaricapi"), self.radius)
+
+        form.addRow(QLabel(f"<b>{self.t('layout')}</b>"))
+        self.rowGap = QDoubleSpinBox(); self.rowGap.setRange(0, 40); self.rowGap.setSingleStep(1); self.rowGap.setDecimals(1); self.rowGap.setSuffix(" px")
+        self.keyGap = QDoubleSpinBox(); self.keyGap.setRange(0, 15); self.keyGap.setSingleStep(0.5); self.keyGap.setDecimals(1); self.keyGap.setSuffix(" px")
+        self.height_ = QSpinBox(); self.height_.setRange(20, 60); self.height_.setSuffix(self.t("screen"))
+        self.numbers = QCheckBox()
+        self.rowGap.valueChanged.connect(lambda n: self.setValue("satirAraligi", n))
+        self.keyGap.valueChanged.connect(lambda n: self.setValue("tusAraligi", n))
+        self.height_.valueChanged.connect(lambda n: self.setValue("tusYuksekligi", n))
+        self.numbers.toggled.connect(lambda b: self.setValue("sayiSatiri", b))
+        form.addRow(self.t("satirAraligi"), self.rowGap)
+        form.addRow(self.t("tusAraligi"), self.keyGap)
+        form.addRow(self.t("tusYuksekligi"), self.height_)
+        form.addRow(self.t("sayiSatiri"), self.numbers)
+
+        self.preview = Preview(self)
+        apply = QPushButton(self.t("apply")); apply.setDefault(True); apply.setMinimumHeight(40)
+        reset = QPushButton(self.t("reset")); reset.setMinimumHeight(40)
+        apply.clicked.connect(self.apply)
+        self.applyButton = apply
+        reset.clicked.connect(self.reset)
+        buttons = QHBoxLayout(); buttons.addWidget(reset); buttons.addWidget(apply)
+
+        # Uzun form tablet ekranında taşmasın diye kaydırılabilir alanda
+        inner = QWidget(); inner.setLayout(form)
+        scroll = QScrollArea(); scroll.setWidget(inner); scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        lay = QVBoxLayout(self)
+        lay.addWidget(scroll); lay.addWidget(self.preview); lay.addLayout(buttons)
+        self.languagesChanged()
+        self.refresh()
+
+    def t(self, key):
+        return TEXT[key][self.ui]
+
+    def changeUiLanguage(self, index):
+        self.settings.setValue("arayuzDili", "en" if index else "tr")
+        self.settings.sync()
+        # Pencereyi yeni dille baştan kurar, kaydedilmemiş değişiklikler korunur
+        w = Window(self.values, self.enabled, self.active)
+        w.setGeometry(self.geometry()); w.show()
+        QApplication.instance().window = w
+        self.close()
+
+    def languagesChanged(self, _item=None):
+        self.enabled = [self.languageList.item(i).data(Qt.UserRole) for i in range(self.languageList.count())
+                        if self.languageList.item(i).checkState() == Qt.Checked]
+        if self.active not in self.enabled and self.enabled:
+            self.active = self.enabled[0]
+        self.activeLanguage.blockSignals(True)
+        self.activeLanguage.clear()
+        for code in self.enabled:
+            self.activeLanguage.addItem(language_name(code), code)
+        self.activeLanguage.setCurrentIndex(max(0, self.activeLanguage.findData(self.active)))
+        self.activeLanguage.blockSignals(False)
+        if hasattr(self, "applyButton"):
+            self.applyButton.setEnabled(bool(self.enabled))
+
+    def activeChanged(self, index):
+        if index >= 0:
+            self.active = self.activeLanguage.itemData(index)
+
+    def refresh(self):
+        for key, b in self.colorButtons.items():
+            c = QColor(self.values[key])
+            fg = "#000" if c.lightness() > 128 else "#fff"
+            b.setText(c.name())
+            b.setStyleSheet(f"background:{c.name()}; color:{fg}; border:1px solid #888; border-radius:6px;")
+        self.border.blockSignals(True); self.border.setValue(int(self.values["cerceveKalinligi"])); self.border.blockSignals(False)
+        self.radius.blockSignals(True); self.radius.setValue(int(self.values["koseYaricapi"])); self.radius.blockSignals(False)
+        for w, k in ((self.rowGap, "satirAraligi"), (self.keyGap, "tusAraligi"), (self.height_, "tusYuksekligi")):
+            w.blockSignals(True); w.setValue(self.values[k]); w.blockSignals(False)
+        self.numbers.blockSignals(True); self.numbers.setChecked(self.values["sayiSatiri"]); self.numbers.blockSignals(False)
+        self.preview.update()
+
+    def setValue(self, key, value):
+        self.values[key] = value
+        self.preview.update()
+
+    def pickColor(self, key):
+        c = QColorDialog.getColor(QColor(self.values[key]), self)
+        if c.isValid():
+            self.values[key] = c.name()
+            self.refresh()
+
+    def reset(self):
+        self.values = dict(DEFAULTS)
+        self.refresh()
+
+    def apply(self):
+        if not self.enabled:
+            return
+        for k, v in self.values.items():
+            self.settings.setValue(k, v)
+        self.settings.sync()
+        subprocess.run(["gsettings", "set", GSCHEMA, "enabled-languages", str(self.enabled)])
+        subprocess.run(["gsettings", "set", GSCHEMA, "active-language", self.active])
+        # Klavyeyi KWin üzerinden kapatıp açar. pkill kullanılmaz: KWin onu çökme sayar,
+        # art arda 5 çökmeden sonra klavyeyi oturum boyunca bir daha başlatmaz.
+        self.applyButton.setEnabled(False)
+        self.setVirtualKeyboard(False)
+        QTimer.singleShot(1000, lambda: self.setVirtualKeyboard(True))
+        QTimer.singleShot(3000, lambda: self.applyButton.setEnabled(True))
+
+    def setVirtualKeyboard(self, on):
+        subprocess.run(["gdbus", "call", "--session", "-d", "org.kde.KWin", "-o", "/VirtualKeyboard",
+                        "-m", "org.freedesktop.DBus.Properties.Set", "org.kde.kwin.VirtualKeyboard",
+                        "enabled", "<%s>" % ("true" if on else "false")], capture_output=True, timeout=5)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setDesktopFileName("maliit-siyah-ayarlar")
+    app.window = Window(); app.window.resize(420, 760); app.window.show()
+    sys.exit(app.exec_())

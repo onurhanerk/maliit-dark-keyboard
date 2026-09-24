@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Pointer Mover
+Name[tr]=İmleç Taşıyıcı
+Comment=Moves the pointer off the dock when the on-screen keyboard closes
+Comment[tr]=Sanal klavye kapanınca imleci dock'tan uzaklaştırır
+Exec=@HOME@/.local/bin/imlec-tasi
+Type=Application
+NoDisplay=true
+X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input

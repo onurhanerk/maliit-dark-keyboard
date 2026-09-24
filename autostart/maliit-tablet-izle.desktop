@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Hide keyboard in laptop mode
+Name[tr]=Klavyeyi dizüstü modunda kapat
+Exec=@HOME@/.local/bin/maliit-tablet-izle
+Type=Application
+NoDisplay=true
+X-KDE-autostart-phase=2

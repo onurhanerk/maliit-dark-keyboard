@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Maliit (Dark)
+Name[tr]=Maliit (Koyu)
+Exec=@HOME@/.local/bin/maliit-keyboard-dark
+Type=Application
+X-KDE-Wayland-VirtualKeyboard=true
+Icon=input-keyboard-virtual
+NoDisplay=true
