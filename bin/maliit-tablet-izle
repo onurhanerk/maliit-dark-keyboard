@@ -2,12 +2,69 @@
 # Ekran tablet modundan dizüstü moduna geri döndüğünde sanal klavyeyi kapatır.
 # Tablet modunda klavye kapanınca imleci ekranın ortasına taşır: dokunmatikte imleç son dokunulan
 # yerde (Enter tuşu gibi) kalır, bu da dock'un üstüne denk gelir ve Latte kendini gizlemez.
-import os, subprocess, sys
+# Latte Dock varsa büyütme efektini tablet modunda kapatır, dizüstü modunda geri açar: parmakla
+# dokunulan simge, parmak kalkınca "imleç ayrıldı" bilgisi gelmediği için büyük kalıyordu.
+import os, subprocess, sys, time
 from PyQt5.QtCore import QObject, QTimer, pyqtSlot
 from PyQt5.QtDBus import QDBusConnection, QDBusInterface, QDBusVariant
 from PyQt5.QtGui import QGuiApplication
 
 MOVE_POINTER = os.path.expanduser("~/.local/bin/imlec-tasi")
+CONF = os.path.expanduser("~/.config/maliit-siyah/stil.conf")
+
+
+def kconfig(tool, file, groups, key, *value):
+    args = [tool, "--file", file]
+    for g in groups:
+        args += ["--group", g]
+    out = subprocess.run(args + ["--key", key, *value], capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+def latte_zoom_groups():
+    """Etkin Latte düzen dosyası ve içindeki dock'ların [General] grupları."""
+    name = kconfig("kreadconfig5", "lattedockrc", ["UniversalSettings"], "singleModeLayoutName")
+    path = os.path.expanduser(f"~/.config/latte/{name}.layout.latte")
+    if not name or not os.path.exists(path):
+        return path, []
+    groups = []
+    for line in open(path):
+        line = line.strip()
+        if line.startswith("[Containments][") and line.count("][") == 1:
+            cid = line[len("[Containments]["):-1]
+            if kconfig("kreadconfig5", path, ["Containments", cid], "plugin") == "org.kde.latte.containment":
+                groups.append(["Containments", cid, "General"])
+    return path, groups
+
+
+def set_latte_zoom(tablet):
+    path, groups = latte_zoom_groups()
+    if not groups:
+        return
+    zooms = [kconfig("kreadconfig5", path, g, "zoomLevel") or "10" for g in groups]
+    if not tablet:
+        # Dizüstü modu: tablet moduna geçerken saklanan büyütmeyi geri yükle
+        saved = kconfig("kreadconfig5", CONF, ["General"], "latteZoom")
+        if not saved or all(z == saved for z in zooms):
+            return
+        target = saved
+    else:
+        if all(z == "0" for z in zooms):
+            return
+        kconfig("kwriteconfig5", CONF, ["General"], "latteZoom", zooms[0])
+        target = "0"
+    # Latte ayarını yalnızca açılırken okur ve kapanırken dosyaya yazar: önce kapat, sonra değiştir
+    running = subprocess.run(["pgrep", "-x", "latte-dock"], capture_output=True).returncode == 0
+    if running:
+        subprocess.run(["qdbus", "org.kde.lattedock", "/Latte", "org.kde.LatteDock.quitApplication"], capture_output=True)
+        for _ in range(50):
+            if subprocess.run(["pgrep", "-x", "latte-dock"], capture_output=True).returncode != 0:
+                break
+            time.sleep(0.1)
+    for g in groups:
+        kconfig("kwriteconfig5", path, g, "zoomLevel", target)
+    if running:
+        subprocess.Popen(["latte-dock"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 class Watcher(QObject):
@@ -21,6 +78,7 @@ class Watcher(QObject):
     def tabletModeChanged(self, tablet):
         if not tablet:
             self.props.call("Set", "org.kde.kwin.VirtualKeyboard", "active", QDBusVariant(False))
+        set_latte_zoom(tablet)
 
     @pyqtSlot()
     def visibleChanged(self):
@@ -40,4 +98,6 @@ w = Watcher()
 bus = QDBusConnection.sessionBus()
 bus.connect("org.kde.KWin", "/org/kde/KWin", "org.kde.KWin.TabletModeManager", "tabletModeChanged", w.tabletModeChanged)
 bus.connect("org.kde.KWin", "/VirtualKeyboard", "org.kde.kwin.VirtualKeyboard", "visibleChanged", w.visibleChanged)
+# Oturum açılışında Latte'nin başlamasını bekleyip büyütmeyi o anki moda göre ayarla
+QTimer.singleShot(15000, lambda: set_latte_zoom(bool(w.tablet.property("tabletMode"))))
 sys.exit(app.exec_())

@@ -20,6 +20,9 @@ Tested on a Lenovo Yoga 6 13ALC7 with Zorin OS 18.
 - **Dock fix:** on a touchscreen the pointer stays where you last tapped. That is usually the Enter key, right above the dock,
   so a dock such as Latte Dock stayed visible over the window. When the keyboard closes in tablet mode, the pointer is now
   moved to the middle of the screen.
+- **Latte Dock zoom off in tablet mode:** a finger tap left the tapped icon zoomed (touch never sends a "pointer left"), and
+  the oversized icon could get cut off and look like it vanished. The parabolic zoom is now switched off in tablet mode and
+  restored in laptop mode (Latte restarts for a couple of seconds on each switch).
 - **Working "Settings…" button:** Maliit's own Settings menu entry did nothing on the desktop. It now opens the settings window.
 - The screen-rotation animation is turned off, so rotation happens instantly.
 
@@ -89,7 +92,7 @@ ayar penceresi ve tablet modu düzeltmeleri.
 
 **Özellikler:** yuvarlak köşeli, çerçeveli siyah tuşlar; renk, satır/tuş aralığı, klavye yüksekliği, rakam satırı ve yazma
 dilleri için ayar penceresi (Türkçe / English); ekran katlanınca açılan, dizüstü moduna dönünce kapanan klavye; klavye
-kapandığında dock'un pencerenin üstünde açık kalması sorununa düzeltme; çalışan "Ayarlar…" menüsü; animasyonsuz ekran döndürme.
+kapandığında dock'un pencerenin üstünde açık kalması sorununa düzeltme; tablet modunda Latte Dock'un büyütme efektini kapatma (dokununca simge büyük kalıyordu); çalışan "Ayarlar…" menüsü; animasyonsuz ekran döndürme.
 
 **Kurulum:** bir terminal aç ve şunları yaz:
 
